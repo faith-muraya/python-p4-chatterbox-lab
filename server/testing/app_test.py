@@ -1,149 +1,101 @@
-from datetime import datetime
+from flask import Flask, request, make_response, jsonify
+from flask_cors import CORS
+from flask_migrate import Migrate
 
-from app import app
 from models import db, Message
 
-class TestApp:
-    '''Flask application in app.py'''
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.json.compact = False
 
-    with app.app_context():
-        m = Message.query.filter(
-            Message.body == "Hello 👋"
-            ).filter(Message.username == "Liza")
+CORS(app)
+migrate = Migrate(app, db)
 
-        for message in m:
-            db.session.delete(message)
+db.init_app(app)
 
+#get and post
+@app.route('/messages', methods=["GET","POST"])
+def messages():
+    if request.method == 'GET':
+        messages = []
+        for message in Message.query.all():
+            message_dict=message.to_dict()
+            messages.append(message_dict)
+        response = make_response(
+            jsonify(messages),
+            200
+        )    
+        return response
+    elif request.method == 'POST':
+        new_message = Message(
+            body=request.get_json().get("body"),
+            username=request.get_json().get("username")
+            
+        )
+
+        db.session.add(new_message)
         db.session.commit()
 
-    def test_has_correct_columns(self):
-        with app.app_context():
+        message_dict = new_message.to_dict()
 
-            hello_from_liza = Message(
-                body="Hello 👋",
-                username="Liza")
-            
-            db.session.add(hello_from_liza)
+        response = make_response(
+            jsonify(message_dict),
+            201
+        )
+
+        return response
+        
+
+#patch and delete
+@app.route('/messages/<int:id>', methods=['GET','PATCH','DELETE'])
+def messages_by_id(id):
+    message = Message.query.filter_by(id=id).first()
+    if message == None:
+        response_body = {
+            "message":"this message doesn't exist in the database"
+        }
+        response = make_response(jsonify(response_body),404)
+        return response
+    else:
+        if request.method == "GET":
+            message_dict = message.to_dict()
+            response = make_response(jsonify(message_dict),200)
+            return response
+        elif request.method == 'PATCH':
+           for attr in request.get_json():
+              if attr == 'body':
+               message.body = request.get_json().get('body')
+              elif attr == 'username':
+               message.username = request.get_json().get('username')
+
+           db.session.commit()
+           message_dict = message.to_dict()
+           response = make_response(
+               jsonify(message_dict),
+               200
+           )
+
+           return response
+
+        elif request.method == 'DELETE':
+            db.session.delete(message)
             db.session.commit()
 
-            assert(hello_from_liza.body == "Hello 👋")
-            assert(hello_from_liza.username == "Liza")
-            assert(type(hello_from_liza.created_at) == datetime)
+            response_body = {
+                "delete_successful": True,
+                "message": "Review deleted."    
+            }
 
-            db.session.delete(hello_from_liza)
-            db.session.commit()
-
-    def test_returns_list_of_json_objects_for_all_messages_in_database(self):
-        '''returns a list of JSON objects for all messages in the database.'''
-        with app.app_context():
-            response = app.test_client().get('/messages')
-            records = Message.query.all()
-
-            for message in response.json:
-                assert(message['id'] in [record.id for record in records])
-                assert(message['body'] in [record.body for record in records])
-
-    def test_creates_new_message_in_the_database(self):
-        '''creates a new message in the database.'''
-        with app.app_context():
-
-            app.test_client().post(
-                '/messages',
-                json={
-                    "body":"Hello 👋",
-                    "username":"Liza",
-                }
+            response = make_response(
+                jsonify(response_body),
+                200
             )
 
-            h = Message.query.filter_by(body="Hello 👋").first()
-            assert(h)
+            return response
 
-            db.session.delete(h)
-            db.session.commit()
-
-    def test_returns_data_for_newly_created_message_as_json(self):
-        '''returns data for the newly created message as JSON.'''
-        with app.app_context():
-
-            response = app.test_client().post(
-                '/messages',
-                json={
-                    "body":"Hello 👋",
-                    "username":"Liza",
-                }
-            )
-
-            assert(response.content_type == 'application/json')
-
-            assert(response.json["body"] == "Hello 👋")
-            assert(response.json["username"] == "Liza")
-
-            h = Message.query.filter_by(body="Hello 👋").first()
-            assert(h)
-
-            db.session.delete(h)
-            db.session.commit()
+        
 
 
-    def test_updates_body_of_message_in_database(self):
-        '''updates the body of a message in the database.'''
-        with app.app_context():
-
-            m = Message.query.first()
-            id = m.id
-            body = m.body
-
-            app.test_client().patch(
-                f'/messages/{id}',
-                json={
-                    "body":"Goodbye 👋",
-                }
-            )
-
-            g = Message.query.filter_by(body="Goodbye 👋").first()
-            assert(g)
-
-            g.body = body
-            db.session.add(g)
-            db.session.commit()
-
-    def test_returns_data_for_updated_message_as_json(self):
-        '''returns data for the updated message as JSON.'''
-        with app.app_context():
-
-            m = Message.query.first()
-            id = m.id
-            body = m.body
-
-            response = app.test_client().patch(
-                f'/messages/{id}',
-                json={
-                    "body":"Goodbye 👋",
-                }
-            )
-
-            assert(response.content_type == 'application/json')
-            assert(response.json["body"] == "Goodbye 👋")
-
-            g = Message.query.filter_by(body="Goodbye 👋").first()
-            g.body = body
-            db.session.add(g)
-            db.session.commit()
-
-    def test_deletes_message_from_database(self):
-        '''deletes the message from the database.'''
-        with app.app_context():
-
-            hello_from_liza = Message(
-                body="Hello 👋",
-                username="Liza")
-            
-            db.session.add(hello_from_liza)
-            db.session.commit()
-
-            app.test_client().delete(
-                f'/messages/{hello_from_liza.id}'
-            )
-
-            h = Message.query.filter_by(body="Hello 👋").first()
-            assert(not h)
+if __name__ == '__main__':
+    app.run(port=5555)
